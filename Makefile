@@ -10,7 +10,7 @@ TARGET := unpackbootimg
 all: $(TARGET)
 
 $(TARGET): $(OBJS)
-	$(CXX) $(CXXFLAGS) -o $@ $^
+	$(CXX) $(CXXFLAGS) -s -o $@ $^
 
 %.o: %.cpp $(DEPS)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
