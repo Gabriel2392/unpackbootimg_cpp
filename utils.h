@@ -9,6 +9,22 @@
 
 namespace utils {
 
+template<size_t N>
+bool ReadU32Array(std::istream& stream, std::array<uint32_t, N>& arr) {
+    for (auto& val : arr) {
+        if (!ReadU32(stream, val)) return false;
+    }
+    return true;
+}
+
+struct ReadStringResult {
+    static bool assign_to(const std::optional<std::string>& src, std::string& dest) {
+        if (!src) return false;
+        dest = CStr(*src);
+        return true;
+    }
+};
+
 bool CreateDirectory(const std::filesystem::path& dir_path);
 bool ExtractImage(std::ifstream& input, uint64_t offset, uint64_t size, 
                   const std::filesystem::path& output_path);
