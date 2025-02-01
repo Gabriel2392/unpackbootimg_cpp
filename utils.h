@@ -1,5 +1,6 @@
 #pragma once
 
+#include <fmt/format.h>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -8,22 +9,6 @@
 #include <vector>
 
 namespace utils {
-
-template<size_t N>
-bool ReadU32Array(std::istream& stream, std::array<uint32_t, N>& arr) {
-    for (auto& val : arr) {
-        if (!ReadU32(stream, val)) return false;
-    }
-    return true;
-}
-
-struct ReadStringResult {
-    static bool assign_to(const std::optional<std::string>& src, std::string& dest) {
-        if (!src) return false;
-        dest = CStr(*src);
-        return true;
-    }
-};
 
 bool CreateDirectory(const std::filesystem::path& dir_path);
 bool ExtractImage(std::ifstream& input, uint64_t offset, uint64_t size, 
@@ -44,5 +29,23 @@ OsVersionPatchLevel DecodeOsVersionPatchLevel(uint32_t os_version_patch_level);
 bool ReadU32(std::istream& stream, uint32_t& value);
 bool ReadU64(std::istream& stream, uint64_t& value);
 std::optional<std::string> ReadString(std::istream& stream, size_t length);
+bool ReadString(std::istream& stream, size_t length, std::string& out);
+
+template<size_t N>
+bool ReadU32Array(std::istream& stream, std::array<uint32_t, N>& arr) {
+    for (auto& val : arr) {
+        if (!ReadU32(stream, val)) return false;
+    }
+    return true;
+}
+
+struct ImageEntry {
+    uint64_t offset;
+    uint32_t size;
+    std::string name;
+
+    ImageEntry(uint64_t o, uint32_t s, std::string n)
+        : offset(o), size(s), name(std::move(n)) {}
+};
 
 } // namespace utils

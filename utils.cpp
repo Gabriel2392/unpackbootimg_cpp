@@ -77,4 +77,13 @@ std::optional<std::string> ReadString(std::istream& stream, size_t length) {
     return CStr(s);
 }
 
+bool ReadString(std::istream& stream, size_t length, std::string& out) {
+    std::string s(length, '\0');
+    if (!stream.read(s.data(), length)) {
+        return false;
+    }
+    out = CStr(s);
+    return true;
+}
+
 } // namespace utils

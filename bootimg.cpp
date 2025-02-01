@@ -101,11 +101,13 @@ std::optional<BootImageInfo> UnpackBootImage(std::ifstream& input,
 
     // Kernel
     uint32_t num_kernel_pages = utils::GetNumberOfPages(info.kernel_size, page_size);
-    image_entries.emplace_back(
-        page_size * num_header_pages,
-        info.kernel_size,
-        "kernel"
-    );
+    if (info.kernel_size > 0) { // Patch1: Only unpack kernel if it exists
+        image_entries.emplace_back(
+            page_size * num_header_pages,
+            info.kernel_size,
+            "kernel"
+        );
+    }
 
     // Ramdisk
     uint32_t num_ramdisk_pages = utils::GetNumberOfPages(info.ramdisk_size, page_size);
@@ -175,12 +177,12 @@ std::string FormatPrettyText(const BootImageInfo& info) {
 
     if (info.header_version < 3) {
         oss << "kernel_size: " << info.kernel_size << "\n"
-            << "kernel load address: " << std::hex << info.kernel_load_address << "\n"
+            << "kernel load address: 0x" << std::hex << info.kernel_load_address << "\n"
             << "ramdisk size: " << std::dec << info.ramdisk_size << "\n"
-            << "ramdisk load address: " << std::hex << info.ramdisk_load_address << "\n"
+            << "ramdisk load address: 0x" << std::hex << info.ramdisk_load_address << "\n"
             << "second bootloader size: " << std::dec << info.second_size << "\n"
-            << "second bootloader load address: " << std::hex << info.second_load_address << "\n"
-            << "kernel tags load address: " << info.tags_load_address << "\n";
+            << "second bootloader load address: 0x" << std::hex << info.second_load_address << "\n"
+            << "kernel tags load address: 0x" << info.tags_load_address << "\n";
     }
 
     oss << "page size: " << std::dec << info.page_size << "\n"
@@ -200,13 +202,13 @@ std::string FormatPrettyText(const BootImageInfo& info) {
 
     if (info.header_version == 1 || info.header_version == 2) {
         oss << "recovery dtbo size: " << info.recovery_dtbo_size << "\n"
-            << "recovery dtbo offset: " << std::hex << info.recovery_dtbo_offset << "\n"
+            << "recovery dtbo offset: 0x" << std::hex << info.recovery_dtbo_offset << "\n"
             << "boot header size: " << std::dec << info.boot_header_size << "\n";
     }
 
     if (info.header_version == 2) {
         oss << "dtb size: " << info.dtb_size << "\n"
-            << "dtb address: " << std::hex << info.dtb_load_address << "\n";
+            << "dtb address: 0x" << std::hex << info.dtb_load_address << "\n";
     }
 
     if (info.header_version >= 4) {
@@ -257,14 +259,14 @@ std::vector<std::string> FormatMkbootimgArguments(const BootImageInfo& info) {
         args.emplace_back("0x0");
 
         args.emplace_back("--kernel_offset");
-        args.emplace_back([](auto addr) { std::ostringstream oss; oss << "0x" << std::hex << addr; return oss.str(); }(info.kernel_load_address));
+        args.emplace_back(std::format("0x{:x}", info.kernel_load_address));
 
         args.emplace_back("--ramdisk_offset");
-        args.emplace_back([](auto addr) { std::ostringstream oss; oss << "0x" << std::hex << addr; return oss.str(); }(info.ramdisk_load_address));
+        args.emplace_back(std::format("0x{:x}", info.ramdisk_load_address));
 
         if (info.header_version == 2) {
             args.emplace_back("--dtb_offset");
-            args.emplace_back([](auto addr) { std::ostringstream oss; oss << "0x" << std::hex << addr; return oss.str(); }(info.dtb_load_address));
+            args.emplace_back(std::format("0x{:x}", info.dtb_load_address));
         }
 
         args.emplace_back("--board");

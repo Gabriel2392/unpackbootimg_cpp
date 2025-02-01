@@ -1,4 +1,4 @@
-#include "vendorboot.h"
+#include "vendorbootimg.h"
 #include "utils.h"
 #include <array>
 #include <sstream>
@@ -69,7 +69,7 @@ std::optional<VendorBootImageInfo> UnpackVendorBootImage(std::ifstream& input,
                 return std::nullopt;
             }
             
-            entry.output_name = fmt::format("vendor_ramdisk{:02}", i);
+            entry.output_name = std::format("vendor_ramdisk{:02}", i);
             entry.name = utils::CStr(entry.name);
             
             image_entries.emplace_back(
@@ -125,7 +125,7 @@ std::optional<VendorBootImageInfo> UnpackVendorBootImage(std::ifstream& input,
 
         for (const auto& [src, dst] : vendor_ramdisk_symlinks) {
             const auto src_path = std::filesystem::relative(output_dir / src, symlink_dir);
-            const auto dst_path = symlink_dir / fmt::format("ramdisk_{}", dst);
+            const auto dst_path = symlink_dir / std::format("ramdisk_{}", dst);
             
             std::error_code ec;
             std::filesystem::remove(dst_path, ec);
@@ -141,9 +141,9 @@ std::string FormatPrettyText(const VendorBootImageInfo& info) {
     std::ostringstream oss;
     oss << "boot magic: " << info.boot_magic << "\n"
         << "vendor boot image header version: " << info.header_version << "\n"
-        << "page size: " << std::hex << info.page_size << "\n"
-        << "kernel load address: " << info.kernel_load_address << "\n"
-        << "ramdisk load address: " << info.ramdisk_load_address << "\n";
+        << "page size: " << info.page_size << "\n"
+        << "kernel load address: 0x" << std::hex << info.kernel_load_address << "\n"
+        << "ramdisk load address: 0x" << info.ramdisk_load_address << "\n";
     
     if (info.header_version > 3) {
         oss << "vendor ramdisk total size: " << std::dec << info.vendor_ramdisk_size << "\n";
@@ -152,18 +152,18 @@ std::string FormatPrettyText(const VendorBootImageInfo& info) {
     }
     
     oss << "vendor command line args: " << info.cmdline << "\n"
-        << "kernel tags load address: " << std::hex << info.tags_load_address << "\n"
+        << "kernel tags load address: 0x" << std::hex << info.tags_load_address << "\n"
         << "product name: " << info.product_name << "\n"
         << "vendor boot image header size: " << std::dec << info.header_size << "\n"
         << "dtb size: " << info.dtb_size << "\n"
-        << "dtb address: " << std::hex << info.dtb_load_address << "\n";
+        << "dtb address: 0x" << std::hex << info.dtb_load_address << "\n";
 
     if (info.header_version > 3) {
         oss << "vendor ramdisk table size: " << std::dec << info.vendor_ramdisk_table_size << "\n"
             << "vendor ramdisk table:\n[\n";
         
         for (const auto& entry : info.vendor_ramdisk_table) {
-            oss << "    " << entry.output_name << ": {\n"
+            oss << std::dec << "    " << entry.output_name << ": {\n"
                 << "        size: " << entry.size << "\n"
                 << "        offset: " << entry.offset << "\n"
                 << "        type: " << std::hex << entry.type << "\n"
@@ -192,22 +192,22 @@ std::vector<std::string> FormatMkbootimgArguments(const VendorBootImageInfo& inf
     args.emplace_back(std::to_string(info.header_version));
     
     args.emplace_back("--pagesize");
-    args.emplace_back(fmt::format("{:#x}", info.page_size));
-    
+    args.emplace_back(std::format("0x{:x}", info.page_size));
+
     args.emplace_back("--base");
     args.emplace_back("0x0");
     
     args.emplace_back("--kernel_offset");
-    args.emplace_back(fmt::format("{:#x}", info.kernel_load_address));
+    args.emplace_back(std::format("0x{:x}", info.kernel_load_address));
     
     args.emplace_back("--ramdisk_offset");
-    args.emplace_back(fmt::format("{:#x}", info.ramdisk_load_address));
+    args.emplace_back(std::format("0x{:x}", info.ramdisk_load_address));
     
     args.emplace_back("--tags_offset");
-    args.emplace_back(fmt::format("{:#x}", info.tags_load_address));
+    args.emplace_back(std::format("0x{:x}", info.tags_load_address));
     
     args.emplace_back("--dtb_offset");
-    args.emplace_back(fmt::format("{:#x}", info.dtb_load_address));
+    args.emplace_back(std::format("0x{:x}", info.dtb_load_address));
     
     args.emplace_back("--vendor_cmdline");
     args.emplace_back(info.cmdline);
@@ -233,8 +233,8 @@ std::vector<std::string> FormatMkbootimgArguments(const VendorBootImageInfo& inf
             
             for (size_t i = 0; i < entry.board_id.size(); ++i) {
                 if (entry.board_id[i] != 0) {
-                    args.emplace_back(fmt::format("--board_id{}", i));
-                    args.emplace_back(fmt::format("{:#x}", entry.board_id[i]));
+                    args.emplace_back(std::format("--board_id{}", i));
+                    args.emplace_back(std::format("{:#x}", entry.board_id[i]));
                 }
             }
             

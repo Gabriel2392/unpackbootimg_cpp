@@ -1,4 +1,5 @@
 #include "bootimg.h"
+#include "vendorbootimg.h"
 #include "utils.h"
 #include <cstdlib>
 #include <filesystem>
@@ -82,20 +83,18 @@ int main(int argc, char* argv[]) {
     input.seekg(0);
 
     std::optional<BootImageInfo> boot_info;
-    // std::optional<VendorBootImageInfo> vendor_boot_info;
+    std::optional<VendorBootImageInfo> vendor_boot_info;
 
     if (std::string_view(magic, 8) == "ANDROID!") {
         boot_info = UnpackBootImage(input, args.output_dir);
     } else if (std::string_view(magic, 8) == "VNDRBOOT") {
-        std::cerr << "Vendor boot image support not implemented yet\n";
-        return EXIT_FAILURE;
-        // vendor_boot_info = UnpackVendorBootImage(input, args.output_dir);
+        vendor_boot_info = UnpackVendorBootImage(input, args.output_dir);
     } else {
         std::cerr << "Invalid boot magic: " << std::string_view(magic, 8) << "\n";
         return EXIT_FAILURE;
     }
 
-    if (!boot_info /* && !vendor_boot_info */) {
+    if (!boot_info && !vendor_boot_info) {
         std::cerr << "Failed to unpack boot image\n";
         return EXIT_FAILURE;
     }
@@ -103,17 +102,15 @@ int main(int argc, char* argv[]) {
     if (args.format == "info") {
         if (boot_info) {
             std::cout << FormatPrettyText(*boot_info) << "\n";
-        }
-        /* else if (vendor_boot_info) {
+        } else if (vendor_boot_info) {
             std::cout << FormatPrettyText(*vendor_boot_info) << "\n";
-        } */
+        }
     } else if (args.format == "mkbootimg") {
         if (boot_info) {
             PrintMkbootimgArgs(FormatMkbootimgArguments(*boot_info), args.null_separator);
-        }
-        /* else if (vendor_boot_info) {
+        } else if (vendor_boot_info) {
             PrintMkbootimgArgs(FormatMkbootimgArguments(*vendor_boot_info), args.null_separator);
-        } */
+        }
     }
 
     return EXIT_SUCCESS;
