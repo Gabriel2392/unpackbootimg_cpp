@@ -5,7 +5,6 @@
 
 namespace {
     constexpr uint32_t VENDOR_RAMDISK_NAME_SIZE = 32;
-    constexpr uint32_t VENDOR_RAMDISK_TABLE_ENTRY_BOARD_ID_SIZE = 4; // 16 bytes / 4 bytes per uint32_t
 }
 
 std::optional<VendorBootImageInfo> UnpackVendorBootImage(std::ifstream& input,

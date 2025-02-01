@@ -119,7 +119,6 @@ std::optional<BootImageInfo> UnpackBootImage(std::ifstream& input,
 
     // Second
     if (info.second_size > 0) {
-        uint32_t num_second_pages = utils::GetNumberOfPages(info.second_size, page_size);
         image_entries.emplace_back(
             page_size * (num_header_pages + num_kernel_pages + num_ramdisk_pages),
             info.second_size,
