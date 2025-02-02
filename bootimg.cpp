@@ -111,11 +111,13 @@ std::optional<BootImageInfo> UnpackBootImage(std::ifstream& input,
 
     // Ramdisk
     uint32_t num_ramdisk_pages = utils::GetNumberOfPages(info.ramdisk_size, page_size);
-    image_entries.emplace_back(
-        page_size * (num_header_pages + num_kernel_pages),
-        info.ramdisk_size,
-        "ramdisk"
-    );
+    if (info.ramdisk_size > 0) { // Patch2: Only unpack ramdisk if it exists
+        image_entries.emplace_back(
+            page_size * (num_header_pages + num_kernel_pages),
+            info.ramdisk_size,
+            "ramdisk"
+        );
+    }
 
     // Second
     if (info.second_size > 0) {
