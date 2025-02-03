@@ -17,6 +17,24 @@ struct ProgramArgs {
   bool null_separator = false;
 };
 
+void print_help() {
+  std::cout
+      << "usage: unpackbootimg [-h|--help] --boot_img BOOT_IMG "
+         "[-o|--out|--output OUT] [--format {info,mkbootimg}] [-0]\n"
+      << "\n"
+      << "Unpacks boot, recovery or vendor_boot image.\n"
+      << "\n"
+      << "options:\n"
+      << "  -h, --help                show this help message and exit\n"
+      << "  --boot_img BOOT_IMG       path to the boot, recovery or vendor_boot "
+         "image\n"
+      << "  -o, --out, --output OUT   output directory of the unpacked "
+         "images\n"
+      << "  --format {info,mkbootimg} text output format (default: info)\n"
+      << "  -0, --null                output null-terminated argument strings\n";
+  exit(EXIT_FAILURE);
+}
+
 std::optional<ProgramArgs> ParseArguments(int argc, char *argv[]) {
   ProgramArgs args;
 
@@ -25,7 +43,8 @@ std::optional<ProgramArgs> ParseArguments(int argc, char *argv[]) {
 
     if (arg == "--boot_img" && ++i < argc) {
       args.boot_img = argv[i];
-    } else if (arg == "--out" && ++i < argc) {
+    } else if ((arg == "--out" || arg == "--output" || arg == "-o") &&
+               ++i < argc) {
       args.output_dir = argv[i];
     } else if (arg == "--format" && ++i < argc) {
       args.format = argv[i];
@@ -35,6 +54,8 @@ std::optional<ProgramArgs> ParseArguments(int argc, char *argv[]) {
       }
     } else if (arg == "-0" || arg == "--null") {
       args.null_separator = true;
+    } else if (arg == "-h" || arg == "--help") {
+      print_help();
     } else {
       std::cerr << "Unknown argument: " << arg << "\n";
       return std::nullopt;
@@ -66,6 +87,9 @@ void PrintMkbootimgArgs(const std::vector<std::string> &args,
 }
 
 int main(int argc, char *argv[]) {
+  if (argc < 2)
+    print_help();
+
   auto maybe_args = ParseArguments(argc, argv);
   if (!maybe_args)
     return EXIT_FAILURE;
