@@ -1,31 +1,30 @@
 #include "vendorbootimg.h"
-#include "utils.h"
-#include <array>
-#include <sstream>
 
 namespace {
 constexpr uint32_t VENDOR_RAMDISK_NAME_SIZE = 32;
-}
+constexpr uint32_t CMDLINE_SIZE = 2048;
+constexpr uint32_t BOARDNAME_SIZE = 16;
+} // namespace
 
-std::optional<VendorBootImageInfo>
+VendorBootImageInfo
 UnpackVendorBootImage(std::ifstream &input,
                       const std::filesystem::path &output_dir) {
   VendorBootImageInfo info;
 
   // Read header fields
-  if (!(utils::ReadString(input, 8, info.boot_magic) &&
+  if (!(utils::ReadString(input, utils::MAGIC_SIZE, info.boot_magic) &&
         utils::ReadU32(input, info.header_version) &&
         utils::ReadU32(input, info.page_size) &&
         utils::ReadU32(input, info.kernel_load_address) &&
         utils::ReadU32(input, info.ramdisk_load_address) &&
         utils::ReadU32(input, info.vendor_ramdisk_size) &&
-        utils::ReadString(input, 2048, info.cmdline) &&
+        utils::ReadString(input, CMDLINE_SIZE, info.cmdline) &&
         utils::ReadU32(input, info.tags_load_address) &&
-        utils::ReadString(input, 16, info.product_name) &&
+        utils::ReadString(input, BOARDNAME_SIZE, info.product_name) &&
         utils::ReadU32(input, info.header_size) &&
         utils::ReadU32(input, info.dtb_size) &&
         utils::ReadU64(input, info.dtb_load_address))) {
-    return std::nullopt;
+    throw errors::FileReadError("header information");
   }
 
   info.cmdline = utils::CStr(info.cmdline);
@@ -37,7 +36,7 @@ UnpackVendorBootImage(std::ifstream &input,
           utils::ReadU32(input, info.vendor_ramdisk_table_entry_num) &&
           utils::ReadU32(input, info.vendor_ramdisk_table_entry_size) &&
           utils::ReadU32(input, info.vendor_bootconfig_size))) {
-      return std::nullopt;
+      throw errors::FileReadError("ramdisk table");
     }
   }
 
@@ -71,7 +70,7 @@ UnpackVendorBootImage(std::ifstream &input,
             utils::ReadU32(input, entry.type) &&
             utils::ReadString(input, VENDOR_RAMDISK_NAME_SIZE, entry.name) &&
             utils::ReadU32Array(input, entry.board_id))) {
-        return std::nullopt;
+        throw errors::FileReadError("ramdisk: " + entry.name);
       }
 
       entry.output_name = std::format("vendor_ramdisk{:02}", i);
@@ -108,13 +107,13 @@ UnpackVendorBootImage(std::ifstream &input,
 
   // Create output directory
   if (!utils::CreateDirectory(output_dir))
-    return std::nullopt;
+    throw std::runtime_error("Could not create output directory.");
 
   // Extract images
   for (const auto &entry : image_entries) {
     const auto output_path = output_dir / entry.name;
     if (!utils::ExtractImage(input, entry.offset, entry.size, output_path)) {
-      return std::nullopt;
+      throw std::runtime_error("Could not extract image: " + entry.name);
     }
   }
 
@@ -122,7 +121,7 @@ UnpackVendorBootImage(std::ifstream &input,
   if (info.header_version > 3 && !vendor_ramdisk_symlinks.empty()) {
     const auto symlink_dir = output_dir / "vendor-ramdisk-by-name";
     if (!utils::CreateDirectory(symlink_dir))
-      return std::nullopt;
+      throw std::runtime_error("Could not create symlink directory.");
 
     for (const auto &[src, dst] : vendor_ramdisk_symlinks) {
       const auto src_path =
@@ -174,7 +173,8 @@ std::string FormatPrettyText(const VendorBootImageInfo &info) {
       oss << std::dec << "    " << entry.output_name << ": {\n"
           << "        size: " << entry.size << "\n"
           << "        offset: " << entry.offset << "\n"
-          << "        type: " << std::hex << entry.type << "\n"
+          << "        type: " << std::hex << utils::getRamdiskType(entry.type)
+          << "\n"
           << "        name: " << entry.name << "\n"
           << "        board_id: [\n";
 
@@ -198,62 +198,52 @@ std::string FormatPrettyText(const VendorBootImageInfo &info) {
 std::vector<std::string>
 FormatMkbootimgArguments(const VendorBootImageInfo &info) {
   std::vector<std::string> args;
-  args.emplace_back("--header_version");
-  args.emplace_back(std::to_string(info.header_version));
 
-  args.emplace_back("--pagesize");
-  args.emplace_back(std::format("0x{:x}", info.page_size));
+  auto add_arg = [&](const std::string &option, const std::string &value) {
+    args.emplace_back(option);
+    args.emplace_back(value);
+  };
 
-  args.emplace_back("--base");
-  args.emplace_back("0x0");
+  add_arg("--header_version", std::to_string(info.header_version));
 
-  args.emplace_back("--kernel_offset");
-  args.emplace_back(std::format("0x{:x}", info.kernel_load_address));
+  add_arg("--pagesize", std::format("0x{:x}", info.page_size));
+  add_arg("--base", "0x0");
+  add_arg("--kernel_offset", std::format("0x{:x}", info.kernel_load_address));
+  add_arg("--ramdisk_offset", std::format("0x{:x}", info.ramdisk_load_address));
+  add_arg("--tags_offset", std::format("0x{:x}", info.tags_load_address));
+  add_arg("--dtb_offset", std::format("0x{:x}", info.dtb_load_address));
 
-  args.emplace_back("--ramdisk_offset");
-  args.emplace_back(std::format("0x{:x}", info.ramdisk_load_address));
-
-  args.emplace_back("--tags_offset");
-  args.emplace_back(std::format("0x{:x}", info.tags_load_address));
-
-  args.emplace_back("--dtb_offset");
-  args.emplace_back(std::format("0x{:x}", info.dtb_load_address));
-
-  args.emplace_back("--vendor_cmdline");
-  args.emplace_back(info.cmdline);
-
-  args.emplace_back("--board");
-  args.emplace_back(info.product_name);
+  add_arg("--vendor_cmdline", info.cmdline);
+  add_arg("--board", info.product_name);
 
   if (info.dtb_size > 0) {
-    args.emplace_back("--dtb");
-    args.emplace_back((info.image_dir / "dtb").string());
+    add_arg("--dtb", (info.image_dir / "dtb").string());
   }
 
   if (info.header_version > 3) {
-    args.emplace_back("--vendor_bootconfig");
-    args.emplace_back((info.image_dir / "bootconfig").string());
+    add_arg("--vendor_bootconfig", (info.image_dir / "bootconfig").string());
 
     for (const auto &entry : info.vendor_ramdisk_table) {
-      args.emplace_back("--ramdisk_type");
-      args.emplace_back(std::to_string(entry.type));
-
-      args.emplace_back("--ramdisk_name");
-      args.emplace_back(entry.name);
-
-      for (size_t i = 0; i < entry.board_id.size(); ++i) {
-        if (entry.board_id[i] != 0) {
-          args.emplace_back(std::format("--board_id{}", i));
-          args.emplace_back(std::format("{:#x}", entry.board_id[i]));
-        }
+      if (entry.name.empty()) {
+        add_arg("--vendor_ramdisk",
+                (info.image_dir / entry.output_name).string());
+        continue;
       }
+      add_arg("--ramdisk_type", utils::getRamdiskType(entry.type));
+      add_arg("--ramdisk_name", entry.name);
 
-      args.emplace_back("--vendor_ramdisk_fragment");
-      args.emplace_back((info.image_dir / entry.output_name).string());
+      // Board ID is not supported atm, but this is for priting
+      /* for (size_t i = 0; i < entry.board_id.size(); ++i) {
+          if (entry.board_id[i] != 0) {
+              add_arg(std::format("--board_id{}", i), std::format("{:#x}",
+      entry.board_id[i]));
+          }
+      } */
+      add_arg("--vendor_ramdisk_fragment",
+              (info.image_dir / entry.output_name).string());
     }
   } else {
-    args.emplace_back("--vendor_ramdisk");
-    args.emplace_back((info.image_dir / "vendor_ramdisk").string());
+    add_arg("--vendor_ramdisk", (info.image_dir / "vendor_ramdisk").string());
   }
 
   return args;

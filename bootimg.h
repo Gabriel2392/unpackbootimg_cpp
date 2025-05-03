@@ -1,11 +1,6 @@
 #pragma once
 
-#include "utils.h"
-#include <cstdint>
-#include <filesystem>
-#include <optional>
-#include <string>
-#include <vector>
+#include "utils.hpp"
 
 struct BootImageInfo {
   std::string boot_magic;
@@ -43,8 +38,8 @@ struct BootImageInfo {
   std::filesystem::path image_dir;
 };
 
-std::optional<BootImageInfo>
-UnpackBootImage(std::ifstream &input, const std::filesystem::path &output_dir);
+BootImageInfo UnpackBootImage(std::ifstream &input,
+                              const std::filesystem::path &output_dir);
 
 std::string FormatPrettyText(const BootImageInfo &info);
 std::vector<std::string> FormatMkbootimgArguments(const BootImageInfo &info);

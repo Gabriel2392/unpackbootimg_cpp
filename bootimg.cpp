@@ -1,37 +1,28 @@
 #include "bootimg.h"
-#include "utils.h"
-#include <array>
-#include <sstream>
-#include <vector>
 
 namespace {
 constexpr uint32_t BOOT_IMAGE_HEADER_V3_PAGESIZE = 4096;
-constexpr uint32_t BOOT_MAGIC_SIZE = 8;
 constexpr uint32_t SHA_LENGTH = 32;
-
-struct ImageEntry {
-  uint64_t offset;
-  uint32_t size;
-  std::string name;
-};
+constexpr uint32_t BOARDNAME_SIZE = 16;
+constexpr uint32_t CMDLINE_SIZE = 512;
+constexpr uint32_t EXTRA_CMDLINE_SIZE = 1024;
+constexpr uint32_t EXTENDED_CMDLINE_SIZE =
+    CMDLINE_SIZE + EXTRA_CMDLINE_SIZE; // v3 and newer = cmdline + extra cmdline
 } // namespace
 
-std::optional<BootImageInfo>
-UnpackBootImage(std::ifstream &input, const std::filesystem::path &output_dir) {
+BootImageInfo UnpackBootImage(std::ifstream &input,
+                              const std::filesystem::path &output_dir) {
   BootImageInfo info;
 
   // Read boot magic
-  if (auto magic = utils::ReadString(input, BOOT_MAGIC_SIZE)) {
-    info.boot_magic = *magic;
-  } else {
-    return std::nullopt;
-  }
+  if (!utils::ReadString(input, utils::MAGIC_SIZE, info.boot_magic))
+    throw errors::FileReadError("boot magic");
 
   // Read kernel/ramdisk/second info (9 uint32_t)
   std::array<uint32_t, 9> kernel_ramdisk_second_info;
   for (auto &val : kernel_ramdisk_second_info) {
     if (!utils::ReadU32(input, val))
-      return std::nullopt;
+      throw errors::FileReadError("header information");
   }
 
   info.header_version = kernel_ramdisk_second_info[8];
@@ -50,7 +41,7 @@ UnpackBootImage(std::ifstream &input, const std::filesystem::path &output_dir) {
     info.tags_load_address = kernel_ramdisk_second_info[6];
 
     if (!utils::ReadU32(input, os_version_patch_level))
-      return std::nullopt;
+      throw errors::FileReadError("os/version patch level");
   } else {
     info.kernel_size = kernel_ramdisk_second_info[0];
     info.ramdisk_size = kernel_ramdisk_second_info[1];
@@ -65,46 +56,47 @@ UnpackBootImage(std::ifstream &input, const std::filesystem::path &output_dir) {
 
   // Handle command line fields
   if (info.header_version < 3) {
-    if (auto product = utils::ReadString(input, 16))
-      info.product_name = utils::CStr(*product);
-    if (auto cmdline = utils::ReadString(input, 512))
-      info.cmdline = utils::CStr(*cmdline);
+    if (!utils::ReadString(input, BOARDNAME_SIZE, info.product_name))
+      throw errors::FileReadError("board name");
+
+    if (!utils::ReadString(input, CMDLINE_SIZE, info.cmdline))
+      throw errors::FileReadError("boot cmdline");
 
     input.seekg(SHA_LENGTH, std::ios::cur);
     if (!input)
-      return std::nullopt;
+      throw errors::FileReadError("SHA-1 checksum");
 
-    if (auto extra = utils::ReadString(input, 1024))
-      info.extra_cmdline = utils::CStr(*extra);
+    if (!utils::ReadString(input, EXTRA_CMDLINE_SIZE, info.extra_cmdline))
+      throw errors::FileReadError("boot extra cmdline");
   } else {
-    if (auto cmdline = utils::ReadString(input, 1536))
-      info.cmdline = utils::CStr(*cmdline);
+    if (!utils::ReadString(input, EXTENDED_CMDLINE_SIZE, info.cmdline))
+      throw errors::FileReadError("boot cmdline");
   }
 
   // Handle version-specific extensions
   if (info.header_version == 1 || info.header_version == 2) {
     if (!utils::ReadU32(input, info.recovery_dtbo_size))
-      return std::nullopt;
+      throw errors::FileReadError("recovery_dtbo_size");
     if (!utils::ReadU64(input, info.recovery_dtbo_offset))
-      return std::nullopt;
+      throw errors::FileReadError("recovery_dtbo_offset");
     if (!utils::ReadU32(input, info.boot_header_size))
-      return std::nullopt;
+      throw errors::FileReadError("boot_header_size");
   }
 
   if (info.header_version == 2) {
     if (!utils::ReadU32(input, info.dtb_size))
-      return std::nullopt;
+      throw errors::FileReadError("dtb_size");
     if (!utils::ReadU64(input, info.dtb_load_address))
-      return std::nullopt;
+      throw errors::FileReadError("dtb_load_address");
   }
 
   if (info.header_version >= 4) {
     if (!utils::ReadU32(input, info.boot_signature_size))
-      return std::nullopt;
+      throw errors::FileReadError("boot_signature_size");
   }
 
   // Calculate image offsets
-  std::vector<ImageEntry> image_entries;
+  std::vector<utils::ImageEntry> image_entries;
   const uint32_t page_size = info.page_size;
   const uint32_t num_header_pages = 1;
 
@@ -157,13 +149,13 @@ UnpackBootImage(std::ifstream &input, const std::filesystem::path &output_dir) {
 
   // Create output directory
   if (!utils::CreateDirectory(output_dir))
-    return std::nullopt;
+    throw std::runtime_error("Could not create output directory.");
 
   // Extract images
   for (const auto &entry : image_entries) {
     const auto output_path = output_dir / entry.name;
     if (!utils::ExtractImage(input, entry.offset, entry.size, output_path)) {
-      return std::nullopt;
+      throw std::runtime_error("Could not extract image: " + entry.name);
     }
   }
 
@@ -225,63 +217,49 @@ std::string FormatPrettyText(const BootImageInfo &info) {
 
 std::vector<std::string> FormatMkbootimgArguments(const BootImageInfo &info) {
   std::vector<std::string> args;
-  args.emplace_back("--header_version");
-  args.emplace_back(std::to_string(info.header_version));
+
+  auto add_arg = [&](const std::string &option, const std::string &value) {
+    args.emplace_back(option);
+    args.emplace_back(value);
+  };
+
+  add_arg("--header_version", std::to_string(info.header_version));
 
   if (!info.os_version.empty()) {
-    args.emplace_back("--os_version");
-    args.emplace_back(info.os_version);
+    add_arg("--os_version", info.os_version);
   }
 
   if (!info.os_patch_level.empty()) {
-    args.emplace_back("--os_patch_level");
-    args.emplace_back(info.os_patch_level);
+    add_arg("--os_patch_level", info.os_patch_level);
   }
 
-  const auto kernel_path = (info.image_dir / "kernel").string();
-  args.emplace_back("--kernel");
-  args.emplace_back(kernel_path);
-
-  const auto ramdisk_path = (info.image_dir / "ramdisk").string();
-  args.emplace_back("--ramdisk");
-  args.emplace_back(ramdisk_path);
+  add_arg("--kernel", (info.image_dir / "kernel").string());
+  add_arg("--ramdisk", (info.image_dir / "ramdisk").string());
 
   if (info.header_version <= 2) {
     if (info.second_size > 0) {
-      args.emplace_back("--second");
-      args.emplace_back((info.image_dir / "second").string());
+      add_arg("--second", (info.image_dir / "second").string());
     }
 
     if (info.recovery_dtbo_size > 0) {
-      args.emplace_back("--recovery_dtbo");
-      args.emplace_back((info.image_dir / "recovery_dtbo").string());
+      add_arg("--recovery_dtbo", (info.image_dir / "recovery_dtbo").string());
     }
 
-    args.emplace_back("--pagesize");
-    args.emplace_back(std::to_string(info.page_size));
+    add_arg("--pagesize", std::to_string(info.page_size));
+    add_arg("--base", "0x0");
 
-    args.emplace_back("--base");
-    args.emplace_back("0x0");
-
-    args.emplace_back("--kernel_offset");
-    args.emplace_back(std::format("0x{:x}", info.kernel_load_address));
-
-    args.emplace_back("--ramdisk_offset");
-    args.emplace_back(std::format("0x{:x}", info.ramdisk_load_address));
+    add_arg("--kernel_offset", std::format("0x{:x}", info.kernel_load_address));
+    add_arg("--ramdisk_offset",
+            std::format("0x{:x}", info.ramdisk_load_address));
 
     if (info.header_version == 2) {
-      args.emplace_back("--dtb_offset");
-      args.emplace_back(std::format("0x{:x}", info.dtb_load_address));
+      add_arg("--dtb_offset", std::format("0x{:x}", info.dtb_load_address));
     }
 
-    args.emplace_back("--board");
-    args.emplace_back(info.product_name);
-
-    args.emplace_back("--cmdline");
-    args.emplace_back(info.cmdline + info.extra_cmdline);
+    add_arg("--board", info.product_name);
+    add_arg("--cmdline", info.cmdline + info.extra_cmdline);
   } else {
-    args.emplace_back("--cmdline");
-    args.emplace_back(info.cmdline);
+    add_arg("--cmdline", info.cmdline);
   }
 
   return args;

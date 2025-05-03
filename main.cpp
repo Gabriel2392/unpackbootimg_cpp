@@ -1,14 +1,32 @@
-#include "bootimg.h"
-#include "utils.h"
+﻿#include "bootimg.h"
+#include "utils.hpp"
 #include "vendorbootimg.h"
+
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <optional>
+#include <stdexcept>
 #include <string>
+#include <string_view>
+#include <utility>
+#include <variant>
 #include <vector>
 
 namespace fs = std::filesystem;
+
+class ArgumentError : public std::runtime_error {
+public:
+  using std::runtime_error::runtime_error;
+};
+
+class HelpRequested : public std::exception {
+public:
+  const char *what() const noexcept override {
+    return "Help requested by user.";
+  }
+};
 
 struct ProgramArgs {
   fs::path boot_img;
@@ -17,130 +35,218 @@ struct ProgramArgs {
   bool null_separator = false;
 };
 
-void print_help() {
-  std::cout
-      << "usage: unpackbootimg [-h|--help] --boot_img BOOT_IMG "
-         "[-o|--out|--output OUT] [--format {info,mkbootimg}] [-0]\n"
-      << "\n"
-      << "Unpacks boot, recovery or vendor_boot image.\n"
-      << "\n"
-      << "options:\n"
-      << "  -h, --help                show this help message and exit\n"
-      << "  --boot_img BOOT_IMG       path to the boot, recovery or vendor_boot "
-         "image\n"
-      << "  -o, --out, --output OUT   output directory of the unpacked "
-         "images\n"
-      << "  --format {info,mkbootimg} text output format (default: info)\n"
-      << "  -0, --null                output null-terminated argument strings\n";
-  exit(EXIT_FAILURE);
+std::string_view TrimOuterQuotes(std::string_view str) {
+  if (str.length() >= 2) {
+    char first = str.front();
+    char last = str.back();
+    return ((first == '"' && last == '"') || (first == '\'' && last == '\''))
+               ? str.substr(1, str.length() - 2)
+               : str;
+  }
+  return str;
 }
 
-std::optional<ProgramArgs> ParseArguments(int argc, char *argv[]) {
+void PrintHelp() {
+  std::cout << R"(unpackbootimg - Unpack boot, recovery, or vendor_boot images.
+
+Usage:
+  unpackbootimg --boot_img <image_path> [options]
+
+Required:
+  --boot_img <path>      Path to the input boot/recovery/vendor_boot image.
+
+Options:
+  -o, --out, --output <dir> Specify the output directory (default: "out").
+                          Can use --output=dir or -o=dir format.
+  --format <type>        Output format: 'info' (human-readable) or 'mkbootimg' (args for mkbootimg).
+                          Default: 'info'. Can use --format=type.
+  -0, --null             Use NULL character ('\0') as separator for mkbootimg format output.
+  -h, --help             Show this help message and exit gracefully.
+
+Example:
+  unpackbootimg --boot_img boot.img -o=extracted_files --format=mkbootimg
+  unpackbootimg --boot_img vendor_boot.img --output "my output dir"
+)" << std::endl;
+  throw HelpRequested();
+}
+
+ProgramArgs ParseArguments(int argc, char *argv[]) {
   ProgramArgs args;
+  bool boot_img_provided = false;
 
   for (int i = 1; i < argc; ++i) {
-    std::string arg = argv[i];
+    std::string_view current_arg = argv[i];
+    std::string_view option_name = current_arg;
+    std::optional<std::string_view> value_opt;
 
-    if (arg == "--boot_img" && ++i < argc) {
-      args.boot_img = argv[i];
-    } else if ((arg == "--out" || arg == "--output" || arg == "-o") &&
-               ++i < argc) {
-      args.output_dir = argv[i];
-    } else if (arg == "--format" && ++i < argc) {
-      args.format = argv[i];
-      if (args.format != "info" && args.format != "mkbootimg") {
-        std::cerr << "Invalid format: " << args.format << "\n";
-        return std::nullopt;
-      }
-    } else if (arg == "-0" || arg == "--null") {
+    size_t equals_pos = current_arg.find('=');
+    if (equals_pos != std::string_view::npos) {
+      option_name = current_arg.substr(0, equals_pos);
+      value_opt = current_arg.substr(equals_pos + 1);
+    }
+
+    if (option_name == "-h" || option_name == "--help") {
+      PrintHelp();
+    } else if (option_name == "-0" || option_name == "--null") {
+      if (value_opt)
+        throw ArgumentError("Flag " + std::string(option_name) +
+                            " does not take a value.");
       args.null_separator = true;
-    } else if (arg == "-h" || arg == "--help") {
-      print_help();
+      continue;
+    }
+
+    bool needs_value = (option_name == "--boot_img" || option_name == "-o" ||
+                        option_name == "--out" || option_name == "--output" ||
+                        option_name == "--format");
+
+    if (needs_value) {
+      if (!value_opt) {
+        if (++i >= argc) {
+          throw ArgumentError("Missing value for argument: " +
+                              std::string(option_name));
+        }
+        value_opt = argv[i];
+      }
+
+      std::string_view value = TrimOuterQuotes(*value_opt);
+
+      if (option_name == "--boot_img") {
+        args.boot_img = value;
+        boot_img_provided = true;
+      } else if (option_name == "-o" || option_name == "--out" ||
+                 option_name == "--output") {
+        args.output_dir = value;
+      } else if (option_name == "--format") {
+        args.format = value;
+        if (args.format != "info" && args.format != "mkbootimg") {
+          throw ArgumentError("Invalid format specified: '" + args.format +
+                              "'. Use 'info' or 'mkbootimg'.");
+        }
+      }
     } else {
-      std::cerr << "Unknown argument: " << arg << "\n";
-      return std::nullopt;
+      throw ArgumentError("Unknown argument or unexpected value: " +
+                          std::string(current_arg));
     }
   }
 
+  if (!boot_img_provided) {
+    throw ArgumentError("Missing required argument: --boot_img");
+  }
+
   if (args.boot_img.empty()) {
-    std::cerr << "Missing required --boot_img argument\n";
-    return std::nullopt;
+    throw ArgumentError("Boot image path cannot be empty.");
+  }
+
+  std::error_code ec;
+  if (!fs::exists(args.boot_img, ec)) {
+    throw ArgumentError("Boot image file not found or inaccessible: " +
+                        args.boot_img.string());
+  }
+  if (!fs::is_regular_file(args.boot_img, ec)) {
+    throw ArgumentError("Specified boot image path is not a regular file: " +
+                        args.boot_img.string());
   }
 
   return args;
 }
 
-void PrintMkbootimgArgs(const std::vector<std::string> &args,
+void PrintMkbootimgArgs(const std::vector<std::string> &cmd_args,
                         bool null_separator) {
-  if (null_separator) {
-    for (const auto &arg : args) {
+  if (cmd_args.empty())
+    return;
+
+  null_separator ? [&]() {
+    for (const auto &arg : cmd_args) {
       std::cout << arg << '\0';
     }
-    std::cout << std::flush;
-  } else {
-    for (const auto &arg : args) {
-      std::cout << (arg.find(' ') != std::string::npos ? "'" + arg + "'" : arg)
-                << " ";
-    }
-    std::cout << "\n";
-  }
+  }()
+                 : [&]() {
+                     for (size_t i = 0; i < cmd_args.size(); ++i) {
+                       const auto &arg = cmd_args[i];
+                       bool needs_quotes = arg.find(' ') != std::string::npos;
+                       std::cout << (needs_quotes ? "\"" + arg + "\"" : arg);
+                       if (i < cmd_args.size() - 1) {
+                         std::cout << " ";
+                       }
+                     }
+                     std::cout << std::endl;
+                   }();
+
+  std::flush(std::cout);
 }
 
 int main(int argc, char *argv[]) {
-  if (argc < 2)
-    print_help();
-
-  auto maybe_args = ParseArguments(argc, argv);
-  if (!maybe_args)
-    return EXIT_FAILURE;
-  auto &args = *maybe_args;
-
-  std::ifstream input(args.boot_img, std::ios::binary);
-  if (!input) {
-    std::cerr << "Failed to open boot image: " << args.boot_img << "\n";
-    return EXIT_FAILURE;
-  }
-
-  // Read magic number
-  char magic[8];
-  if (!input.read(magic, sizeof(magic))) {
-    std::cerr << "Failed to read boot magic\n";
-    return EXIT_FAILURE;
-  }
-  input.seekg(0);
-
-  std::optional<BootImageInfo> boot_info;
-  std::optional<VendorBootImageInfo> vendor_boot_info;
-
-  if (std::string_view(magic, 8) == "ANDROID!") {
-    boot_info = UnpackBootImage(input, args.output_dir);
-  } else if (std::string_view(magic, 8) == "VNDRBOOT") {
-    vendor_boot_info = UnpackVendorBootImage(input, args.output_dir);
-  } else {
-    std::cerr << "Invalid boot magic: " << std::string_view(magic, 8) << "\n";
-    return EXIT_FAILURE;
-  }
-
-  if (!boot_info && !vendor_boot_info) {
-    std::cerr << "Failed to unpack boot image\n";
-    return EXIT_FAILURE;
-  }
-
-  if (args.format == "info") {
-    if (boot_info) {
-      std::cout << FormatPrettyText(*boot_info) << "\n";
-    } else if (vendor_boot_info) {
-      std::cout << FormatPrettyText(*vendor_boot_info) << "\n";
+  try {
+    if (argc < 2) {
+      PrintHelp();
     }
-  } else if (args.format == "mkbootimg") {
-    if (boot_info) {
-      PrintMkbootimgArgs(FormatMkbootimgArguments(*boot_info),
-                         args.null_separator);
-    } else if (vendor_boot_info) {
-      PrintMkbootimgArgs(FormatMkbootimgArguments(*vendor_boot_info),
-                         args.null_separator);
-    }
-  }
 
-  return EXIT_SUCCESS;
+    const ProgramArgs args = ParseArguments(argc, argv);
+
+    std::ifstream input(args.boot_img, std::ios::binary);
+    if (!input) {
+      throw std::runtime_error("Failed to open boot image: " +
+                               args.boot_img.string());
+    }
+
+    constexpr size_t magic_size = 8;
+    char magic[magic_size];
+    if (!input.read(magic, magic_size)) {
+      throw std::runtime_error("Failed to read magic from boot image: " +
+                               args.boot_img.string());
+    }
+    input.seekg(0, std::ios::beg);
+
+    std::variant<std::monostate, BootImageInfo, VendorBootImageInfo> image_info;
+    std::string_view magic_view(magic, magic_size);
+
+    if (magic_view == "ANDROID!") {
+      image_info = UnpackBootImage(input, args.output_dir);
+    } else if (magic_view == "VNDRBOOT") {
+      image_info = UnpackVendorBootImage(input, args.output_dir);
+    } else {
+      std::string magic_str;
+      for (size_t i = 0; i < magic_size; ++i) {
+        char c = magic[i];
+        magic_str += (isprint(static_cast<unsigned char>(c)) ? c : '.');
+      }
+      throw std::runtime_error("Invalid boot image magic: '" + magic_str + "'");
+    }
+
+    if (args.format == "info") {
+      std::visit(
+          [](const auto &info) {
+            if constexpr (!std::is_same_v<std::decay_t<decltype(info)>,
+                                          std::monostate>) {
+              std::cout << FormatPrettyText(info);
+            }
+          },
+          image_info);
+    } else if (args.format == "mkbootimg") {
+      std::visit(
+          [&args](const auto &info) {
+            if constexpr (!std::is_same_v<std::decay_t<decltype(info)>,
+                                          std::monostate>) {
+              PrintMkbootimgArgs(FormatMkbootimgArguments(info),
+                                 args.null_separator);
+            }
+          },
+          image_info);
+    }
+
+    return EXIT_SUCCESS;
+
+  } catch (const HelpRequested &) {
+    return EXIT_SUCCESS;
+  } catch (const ArgumentError &e) {
+    std::cerr << "Argument Error: " << e.what() << std::endl;
+    std::cerr << "Use -h or --help for usage instructions." << std::endl;
+    return EXIT_FAILURE;
+  } catch (const std::exception &e) {
+    std::cerr << e.what() << std::endl;
+    return EXIT_FAILURE;
+  } catch (...) {
+    std::cerr << "An unexpected error occurred." << std::endl;
+    return EXIT_FAILURE;
+  }
 }

@@ -1,10 +1,6 @@
 #pragma once
 
-#include "utils.h"
-#include <cstdint>
-#include <filesystem>
-#include <string>
-#include <vector>
+#include "utils.hpp"
 
 struct VendorRamdiskTableEntry {
   std::string output_name;
@@ -39,7 +35,7 @@ struct VendorBootImageInfo {
   std::filesystem::path image_dir;
 };
 
-std::optional<VendorBootImageInfo>
+VendorBootImageInfo
 UnpackVendorBootImage(std::ifstream &input,
                       const std::filesystem::path &output_dir);
 
