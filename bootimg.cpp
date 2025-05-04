@@ -243,7 +243,7 @@ std::vector<std::string> FormatMkbootimgArguments(const BootImageInfo &info) {
 
   if (info.header_version == 2) {
     add_arg("--dtb", (info.image_dir / "dtb").string());
-    add_arg("--dtb_offset", std::to_string(info.dtb_load_address));
+    add_arg("--dtb_offset", std::format("0x{:x}", info.dtb_load_address));
   }
 
   if (info.header_version <= 2) {
@@ -261,10 +261,6 @@ std::vector<std::string> FormatMkbootimgArguments(const BootImageInfo &info) {
     add_arg("--kernel_offset", std::format("0x{:x}", info.kernel_load_address));
     add_arg("--ramdisk_offset",
             std::format("0x{:x}", info.ramdisk_load_address));
-
-    if (info.header_version == 2) {
-      add_arg("--dtb_offset", std::format("0x{:x}", info.dtb_load_address));
-    }
 
     add_arg("--board", info.product_name);
     add_arg("--cmdline", info.cmdline + info.extra_cmdline);
