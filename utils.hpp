@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <stdio.h>
 #include <string>
+#include <sstream>
 #include <string_view>
 #include <system_error>
 #include <utility>
