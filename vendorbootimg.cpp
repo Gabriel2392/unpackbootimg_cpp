@@ -214,7 +214,7 @@ FormatMkbootimgArguments(const VendorBootImageInfo &info) {
   add_arg("--dtb_offset", std::format("0x{:x}", info.dtb_load_address));
 
   if (!info.cmdline.empty()) add_arg("--vendor_cmdline", info.cmdline);
-  add_arg("--board", info.product_name);
+  if (!info.product_name.empty()) add_arg("--board", info.product_name);
 
   if (info.dtb_size > 0) {
     add_arg("--dtb", (info.image_dir / "dtb").string());
