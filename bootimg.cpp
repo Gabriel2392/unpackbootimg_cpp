@@ -263,9 +263,11 @@ std::vector<std::string> FormatMkbootimgArguments(const BootImageInfo &info) {
     add_arg("--pagesize", std::to_string(info.page_size)); // V3+ Use a fixed size of 4096 and cannot be changed
     add_arg("--tags_offset", std::format("0x{:x}", info.tags_load_address));
     add_arg("--board", info.product_name);
-    add_arg("--cmdline", info.cmdline + info.extra_cmdline);
+    if (!info.cmdline.empty() || !info.extra_cmdline.empty()) {
+      add_arg("--cmdline", info.cmdline + info.extra_cmdline);
+    }
   } else {
-    add_arg("--cmdline", info.cmdline);
+    if (!info.cmdline.empty()) add_arg("--cmdline", info.cmdline);
   }
 
   return args;
