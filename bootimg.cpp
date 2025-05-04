@@ -233,8 +233,18 @@ std::vector<std::string> FormatMkbootimgArguments(const BootImageInfo &info) {
     add_arg("--os_patch_level", info.os_patch_level);
   }
 
-  add_arg("--kernel", (info.image_dir / "kernel").string());
-  add_arg("--ramdisk", (info.image_dir / "ramdisk").string());
+  if (info.kernel_size > 0) {
+    add_arg("--kernel", (info.image_dir / "kernel").string());
+  }
+
+  if (info.ramdisk_size > 0) {
+    add_arg("--ramdisk", (info.image_dir / "ramdisk").string());
+  }
+
+  if (info.header_version == 2) {
+    add_arg("--dtb", (info.image_dir / "dtb").string());
+    add_arg("--dtb_offset", std::to_string(info.dtb_load_address));
+  }
 
   if (info.header_version <= 2) {
     if (info.second_size > 0) {
