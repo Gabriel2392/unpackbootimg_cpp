@@ -235,10 +235,13 @@ std::vector<std::string> FormatMkbootimgArguments(const BootImageInfo &info) {
 
   if (info.kernel_size > 0) {
     add_arg("--kernel", (info.image_dir / "kernel").string());
+    add_arg("--kernel_offset", std::format("0x{:x}", info.kernel_load_address));
   }
 
   if (info.ramdisk_size > 0) {
     add_arg("--ramdisk", (info.image_dir / "ramdisk").string());
+    add_arg("--ramdisk_offset",
+            std::format("0x{:x}", info.ramdisk_load_address));
   }
 
   if (info.header_version == 2) {
@@ -249,19 +252,16 @@ std::vector<std::string> FormatMkbootimgArguments(const BootImageInfo &info) {
   if (info.header_version <= 2) {
     if (info.second_size > 0) {
       add_arg("--second", (info.image_dir / "second").string());
+      add_arg("--second_offset", std::format("0x{:x}", info.second_load_address));
     }
 
     if (info.recovery_dtbo_size > 0) {
       add_arg("--recovery_dtbo", (info.image_dir / "recovery_dtbo").string());
     }
 
-    add_arg("--pagesize", std::to_string(info.page_size));
     add_arg("--base", "0x0");
-
-    add_arg("--kernel_offset", std::format("0x{:x}", info.kernel_load_address));
-    add_arg("--ramdisk_offset",
-            std::format("0x{:x}", info.ramdisk_load_address));
-
+    add_arg("--pagesize", std::to_string(info.page_size)); // V3+ Use a fixed size of 4096 and cannot be changed
+    add_arg("--tags_offset", std::format("0x{:x}", info.tags_load_address));
     add_arg("--board", info.product_name);
     add_arg("--cmdline", info.cmdline + info.extra_cmdline);
   } else {
