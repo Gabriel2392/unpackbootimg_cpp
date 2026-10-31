@@ -78,7 +78,7 @@ inline bool ExtractImage(std::ifstream &input, uint64_t offset, uint64_t size,
   return output.good();
 }
 
-inline uint32_t GetNumberOfPages(uint32_t image_size, uint32_t page_size) {
+inline uint64_t GetNumberOfPages(uint64_t image_size, uint64_t page_size) {
   if (page_size == 0) {
     return 0;
   }

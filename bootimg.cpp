@@ -95,13 +95,16 @@ BootImageInfo UnpackBootImage(std::ifstream &input,
       throw errors::FileReadError("boot_signature_size");
   }
 
+  if (info.page_size == 0)
+    throw std::runtime_error("Invalid boot image: page size is zero");
+
   // Calculate image offsets
   std::vector<utils::ImageEntry> image_entries;
-  const uint32_t page_size = info.page_size;
-  const uint32_t num_header_pages = 1;
+  const uint64_t page_size = info.page_size;
+  const uint64_t num_header_pages = 1;
 
   // Kernel
-  uint32_t num_kernel_pages =
+  uint64_t num_kernel_pages =
       utils::GetNumberOfPages(info.kernel_size, page_size);
   if (info.kernel_size > 0) { // Patch1: Only unpack kernel if it exists
     image_entries.emplace_back(page_size * num_header_pages, info.kernel_size,
@@ -109,7 +112,7 @@ BootImageInfo UnpackBootImage(std::ifstream &input,
   }
 
   // Ramdisk
-  uint32_t num_ramdisk_pages =
+  uint64_t num_ramdisk_pages =
       utils::GetNumberOfPages(info.ramdisk_size, page_size);
   if (info.ramdisk_size > 0) { // Patch2: Only unpack ramdisk if it exists
     image_entries.emplace_back(page_size *

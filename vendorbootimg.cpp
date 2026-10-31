@@ -40,18 +40,21 @@ UnpackVendorBootImage(std::ifstream &input,
     }
   }
 
+  if (info.page_size == 0)
+    throw std::runtime_error("Invalid vendor boot image: page size is zero");
+
   // Calculate offsets
-  const uint32_t page_size = info.page_size;
-  const uint32_t num_header_pages =
+  const uint64_t page_size = info.page_size;
+  const uint64_t num_header_pages =
       utils::GetNumberOfPages(info.header_size, page_size);
-  const uint32_t ramdisk_offset_base = page_size * num_header_pages;
+  const uint64_t ramdisk_offset_base = page_size * num_header_pages;
 
   std::vector<utils::ImageEntry> image_entries;
   std::vector<std::pair<std::string, std::string>> vendor_ramdisk_symlinks;
 
   // Handle vendor ramdisk table
   if (info.header_version > 3) {
-    const uint32_t table_pages =
+    const uint64_t table_pages =
         utils::GetNumberOfPages(info.vendor_ramdisk_table_size, page_size);
     const uint64_t table_offset =
         page_size *
